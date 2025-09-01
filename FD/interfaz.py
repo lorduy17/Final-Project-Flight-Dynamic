@@ -1,149 +1,261 @@
+
+
 import tkinter as tk
+from tkinter import ttk
+from tkinter import filedialog
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import matplotlib.pyplot as plt
 import numpy as np
-from r_t import operaciones
+from r_t import operations
 from objeto import maya
 
 
 
 class Interfaz():
-    def __init__(self,master,objeto):
+    def __init__(self,master):
         self.master = master
-        self.objeto = objeto
-        self.opn = operaciones()
+        self.objeto = maya()
+        self.opn = operations()
 
-        self.sld_original = None
-
-        self.fig = plt.figure()
-        self.ax = self.fig.add_subplot(111,projection='3d')
-
-        # Canvas
-        self.canvas = FigureCanvasTkAgg(self.fig, master=self.master)
-        self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH,expand=True)
-
-
-        # Frames
-        frm_inputs = tk.Frame(master)
-        frm_inputs.pack(fill="x", pady=5)
-
-
-        ## Euler angles Frames
-        self.entry_phi = self.crear_entry(frm_inputs, "phi (°):")
-        self.entry_theta = self.crear_entry(frm_inputs, "theta (°):")
-        self.entry_psi = self.crear_entry(frm_inputs, "psi (°):")
-        ## Aerodynamic angles Frames
-        self.entry_alpha = self.crear_entry(frm_inputs, "alpha (°):")
-        self.entry_beta = self.crear_entry(frm_inputs, "beta (°):")
-        ## wind vector Frames
-        self.entry_u = self.crear_entry(frm_inputs, "u m/s:")
-        self.entry_v = self.crear_entry(frm_inputs, "v m/s:")
-        self.entry_w = self.crear_entry(frm_inputs, "w m/s:")
-
-        for entry in [self.entry_phi, self.entry_theta, self.entry_psi,
-                      self.entry_alpha, self.entry_beta,
-                      self.entry_u, self.entry_v, self.entry_w]:
-            entry.bind("<Return>", self.update_plot)
-            
-        # Actualizar
-        btn_update = tk.Button(master, text="Actualizar rotación", command=self.update_plot)
-        btn_update.pack(pady=5)
-
-        self.update_plot()
-
-    # Entradas
-    def crear_entry(self, parent, label_text):
-    
-        frame = tk.Frame(parent)
-        frame.pack(side="left", padx=5)
-        lbl = tk.Label(frame, text=label_text)
-        lbl.pack()
-        entry = tk.Entry(frame, width=6)
-        entry.insert(0, "0")  # valor inicial
-        entry.pack()
+        self.entries = {}
         
-        return entry
+        self.fig = plt.figure()
+        self.ax = self.fig.add_subplot(111, projection='3d')
+
+        # canvas
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self.master)
+        self.canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+        # Create entries
+        self.create_entries()
+
+        # Buttons
+        self.create_buttons()
+
+        # Init values
+        self.wind_norm = np.array([0,0,0])
     
+    # Wigets
+    def create_entries(self):
+        frame = tk.Frame(self.master)
+        frame.pack(pady=5)
+
+        # Euler angles
+        euler_frame = tk.LabelFrame(frame, text="Euler Angles")
+        euler_frame.pack(side="left", padx=10)
+        for key in ["phi(°)", "theta(°)", "psi(°)"]:
+            self.add_entry(euler_frame, key)
+
+        # Aerodynamic Angles
+        aero_frame = tk.LabelFrame(frame, text="Aerodynamic Angles")
+        aero_frame.pack(side="left", padx=10)
+        
+        for key in ["alpha(°)", "beta(°)", "gamma(°)"]:
+            self.add_entry(aero_frame, key)
+
+        # Body
+        wind_frame = tk.LabelFrame(frame, text="Body")
+        wind_frame.pack(side="left", padx=10)
+        for key in ["u m/s", "v m/s", "w m/s"]:
+            self.add_entry(wind_frame, key)    
+
+        # Across Wind
+        aw_frame = tk.LabelFrame(frame, text="Wind Across")     
+        aw_frame.pack(side="left",padx=10)
+        for key in ["wind_x m/s","wind_y m/s","wind_z m/s"]:
+            self.add_entry(aw_frame, key)
+        
+        # Gamma input
+        self.gamma_input_var = tk.BooleanVar()
+        self.gamma_input_var.set(False)
+
+        tk.Checkbutton(aero_frame, text="Gamma es entrada",
+                       variable=self.gamma_input_var).pack()
+
+    def add_entry(self,parent,label_text):
+        frame = tk.Frame(parent)
+        frame.pack(pady=2)
+        tk.Label(frame, text=label_text).pack()
+        entry = tk.Entry(frame, width=10)
+        entry.insert(0, "0")
+        entry.pack()
+        self.entries[label_text] = entry
+
+    def create_buttons(self):
+        button_frame = tk.Frame(self.master)
+        button_frame.pack(pady=10)
+
+        tk.Button(button_frame, text="Load STL", command=self.load_stl).pack(side=tk.LEFT, padx=5)
+        tk.Button(button_frame, text="Update Rotation", command=self.update_plot).pack(side=tk.LEFT, padx=5)
    
-    # Actualiza plot
-    def update_plot(self,_=None):
-        if not self.objeto.ruta_stl:
+
+    def load_stl(self):
+        filename = filedialog.askopenfilename(title="Select STL file",
+            filetypes=[("STL files", "*.stl")])
+        if filename:
+            self.objeto.file_load(filename)
+            self.update_plot()
+
+
+    
+    def set_axes_equal(self):
+        '''Set 3D plot axes to equal scale.'''
+        x_limits = self.ax.get_xlim3d()
+        y_limits = self.ax.get_ylim3d()
+        z_limits = self.ax.get_zlim3d()
+
+        x_range = abs(x_limits[1] - x_limits[0])
+        x_middle = np.mean(x_limits)
+        y_range = abs(y_limits[1] - y_limits[0])
+        y_middle = np.mean(y_limits)
+        z_range = abs(z_limits[1] - z_limits[0])
+        z_middle = np.mean(z_limits)
+
+        plot_radius = 0.5 * max([x_range, y_range, z_range])
+
+        self.ax.set_xlim3d([x_middle - plot_radius, x_middle + plot_radius])
+        self.ax.set_ylim3d([y_middle - plot_radius, y_middle + plot_radius])
+        self.ax.set_zlim3d([z_middle - plot_radius, z_middle + plot_radius])
+
+
+    def update_plot(self):
+        if self.objeto.get_normalized_vertices() is None:
             return
+        
+        vectors = self.objeto.get_normalized_vertices().reshape(-1,3,3)
         try:
-            # Obtener valores
-            phi = np.radians(float(self.entry_phi.get()))
-            theta = np.radians(float(self.entry_theta.get()))
-            psi = np.radians(float(self.entry_psi.get()))
-            alpha = np.radians(float(self.entry_alpha.get()))
-            beta = np.radians(float(self.entry_beta.get()))
-            u = float(self.entry_u.get())
-            v = float(self.entry_v.get())
-            w = float(self.entry_w.get())
 
-            wind = [u,v,w]
-        except ValueError:
-            print("Valores incorrectos")
-            return
+            self.phi = np.deg2rad(float(self.entries["phi(°)"].get()))
+            self.theta = -np.deg2rad(float(self.entries["theta(°)"].get()))
+            self.psi = np.deg2rad(float(self.entries["psi(°)"].get()))
+            self.alpha = np.deg2rad(float(self.entries["alpha(°)"].get()))
+            self.beta = np.deg2rad(float(self.entries["beta(°)"].get()))
+            self.gamma = np.deg2rad(float(self.entries["gamma(°)"].get()))
+            u = float(self.entries["u m/s"].get())
+            v = float(self.entries["v m/s"].get())
+            w = float(self.entries["w m/s"].get())
+            wind_x = float(self.entries["wind_x m/s"].get())
+            wind_y = float(self.entries["wind_y m/s"].get())
+            wind_z = float(self.entries["wind_z m/s"].get())
 
-        if wind is not None and len(wind) == 3:
-            norm_wind = np.linalg.norm(wind)
-
-            if wind[0] != 0 and norm_wind != 0:
-                alpha = np.arctan(wind[2]/wind[0])
-                beta = np.arcsin(wind[1]/norm_wind)
+            # R_euler calc
+            if np.linalg.norm([self.phi,self.theta,self.psi]) != 0:
+                R_euler = self.opn.mult_matrix(
+                    self.opn.rot_x(self.phi),
+                    self.opn.rot_y(self.theta),
+                    self.opn.rot_z(self.psi)
+                    )
             else:
+                R_euler = np.eye(3)
+            
+
+            # R_aero calc
+            awind = np.array([wind_x,wind_y,wind_z])
+            wind = np.array([u, v, w]) - awind
+         
+            if np.linalg.norm(wind) == 0: ## For case 1
                 alpha = 0
                 beta = 0
-        else:
-            alpha = 0
-            beta = 0
+                gamma = self.theta
+                R_aero = np.eye(3)
 
-        # Rotación del cuerpo
-        matriz_rot = self.opn.L_bv(phi,theta,psi)@self.opn.L_bw(alpha,beta)
-        sld_original = self.objeto.solido() 
-        n_tri = sld_original.shape[0]
-        sld_flat = sld_original.reshape(-1,3).T
-        sld_r = matriz_rot@sld_flat
-        sld_r = sld_r.T.reshape(n_tri,3,3)
+            else: 
+                self.wind_norm = operations.normalized(wind)
+                if wind[2] == 0:
+                    alpha = 0
+                    beta = np.arcsin(self.wind_norm[1])
+                    
+                    gamma = self.theta - alpha
+                else:
+                    alpha = np.arctan2(self.wind_norm[2],self.wind_norm[0])
+                    beta = np.arcsin(self.wind_norm[1])
+                    
+                    if self.gamma_input_var.get():
+                        gamma = self.theta - alpha
+                        self.theta = self.gamma + self.alpha
+                    else:
+                        gamma = 0
 
-        # Redibujar
+            self.alpha = alpha 
+            self.beta = beta
+            self.gamma = gamma
+            
+
+            R = R_euler
+
+            self.opn.update_state(
+                self.alpha,
+                self.beta,
+                self.gamma,
+                wind
+            )
+
+            print(self.opn.state_actual())
+                    
+        except ValueError:
+            print("Invalid input")
+            return
+        
+        vectors_rot = vectors.reshape(-1,3) @ R.T
+        vectors_rot = vectors_rot.reshape(vectors.shape)
+
+        
+
+        # Draw
         self.ax.clear()
-        self.ax.grid(False)
+        self.ax.grid(True)
         self.ax.set_axis_off()
-        coleccion = Poly3DCollection(sld_r, alpha=0.7, facecolor="lightblue", edgecolor="k")
-        self.ax.add_collection3d(coleccion)
+        
+        poly = Poly3DCollection(vectors_rot, alpha=0.7,
+                                facecolor="lightblue",
+                                edgecolor="k")
+        
 
-        x_min, y_min,z_min = np.min(sld_r.reshape(-1,3),axis=0)
-        x_max, y_max,z_max = np.max(sld_r.reshape(-1,3),axis=0)
-        self.ax.set_xlim(x_min,x_max)
-        self.ax.set_ylim(y_min,y_max)
-        self.ax.set_zlim(z_min,z_max)
-        self.ax.set_box_aspect([x_max-x_min,y_max-y_min,z_max-z_min])
+        self.ax.add_collection3d(poly)
+        self.ax.set_box_aspect([1,1,1])  
+        self.set_axes_equal()
 
-        # Origen fijo
-        origen_fijo = np.array([0, 0, 0])  # esquina inferior del modelo
-        longitud = 0.5 * max(x_max - x_min, y_max - y_min, z_max - z_min)
-        self.ax.quiver(*origen_fijo, longitud, 0, 0, color='r')
-        self.ax.quiver(*origen_fijo, 0, longitud, 0, color='g')
-        self.ax.quiver(*origen_fijo, 0, 0, longitud, color='b')
-        self.ax.text(*origen_fijo + [longitud, 0, 0], "X", color="r", weight="bold")
-        self.ax.text(*origen_fijo + [0, longitud, 0], "Y", color="g", weight="bold")
-        self.ax.text(*origen_fijo + [0, 0, longitud], "Z", color="b", weight="bold")
+        # NED fixed
+        NED = np.array([[1, 0, 0],
+                        [0, -1, 0],
+                        [0, 0, -1]])
+        NED = R @ NED
 
-        self.ax.view_init(elev=20, azim=30)
+        self.ax.quiver(0, 0, 0, NED[0,0], NED[1,0], NED[2,0], color='g', length=1.4, normalize=True)
+        self.ax.quiver(0, 0, 0, NED[0,1], NED[1,1], NED[2,1], color='g', length=1.4, normalize=True)
+        self.ax.quiver(0, 0, 0, NED[0,2], NED[1,2], NED[2,2], color='g', length=1.4, normalize=True)
+        self.ax.text(NED[0,0], NED[1,0], NED[2,0], 'X', color='g')
+        self.ax.text(NED[0,1], NED[1,1], NED[2,1], 'Y', color='g')
+        self.ax.text(NED[0,2], NED[1,2], NED[2,2], 'Z', color='g')
 
+        ## X fixed
+
+        self.ax.quiver(0,0,0, 1,0,0, color='magenta', length=1.4, normalize=True)
+        self.ax.text(1,0,0, 'Xs', color='magenta')
+
+    
+
+
+        # Show wind vector
+        if np.linalg.norm(self.wind_norm) != 0:
+            v_r = self.wind_norm
+            self.ax.quiver(0,0,0, 
+                           v_r[0],v_r[1],v_r[2],
+            color="lightblue",linewidth = 2, length=1.3, normalize=True)
+            self.ax.text(v_r[0],v_r[1],v_r[2],
+                 'Wind', color='lightblue')
+
+        
+         # Initial view
+        self.ax.view_init(elev=20., azim=-30)
         self.canvas.draw()
 
-if __name__ == "__main__":
-    root = tk.Tk()
-    root.title("Rotación STL con entradas")
 
-    obj = maya()  # Esto abrirá el diálogo para cargar el STL
-    app = Interfaz(root, obj)
+# if __name__ == "__main__":
+#     root = tk.Tk()
+#     root.title("3D STL Viewer")
+#     app = Interfaz(root)
+#     root.mainloop()
 
-    btn_cargar = tk.Button(root, text="Cargar STL", command=lambda: [obj.carga_archivo(), app.update_plot()])
-    btn_cargar.pack()
-
-    root.mainloop()
-
+        
